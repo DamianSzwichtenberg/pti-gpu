@@ -198,7 +198,7 @@ class ZeMetricCollector {
       metric_result.inst_xmx += inst_xmx;
       metric_result.inst_send += inst_send;
       metric_result.inst_ctrl += inst_ctrl;
-      metrci_result.merged_reports += 1;
+      metric_result.merged_reports += 1;
 
       report += report_size_;
     }
