@@ -18,6 +18,15 @@
 #include "ze_utils.h"
 #include "metric_utils.h"
 
+struct MetricResult {
+  uint64_t inst_alu0 = 0;
+  uint64_t inst_alu1 = 0;
+  uint64_t inst_xmx = 0;
+  uint64_t inst_send = 0;
+  uint64_t inst_ctrl = 0;
+  uint64_t merged_reports = 0;
+};
+
 enum CollectorState {
   COLLECTOR_STATE_IDLE = 0,
   COLLECTOR_STATE_ENABLED = 1,
@@ -66,48 +75,8 @@ class ZeMetricCollector {
     DisableMetrics();
   }
 
-  std::vector<zet_typed_value_t> GetReportList() const {
-    ze_result_t status = ZE_RESULT_SUCCESS;
-    std::vector<zet_typed_value_t> report_list;
-    PTI_ASSERT(metric_group_ != nullptr);
-
-    if (metric_storage_.size() == 0) {
-      return report_list;
-    }
-
-    uint32_t value_count = 0;
-    status = zetMetricGroupCalculateMetricValues(
-        metric_group_, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
-        metric_storage_.size(), metric_storage_.data(), &value_count, nullptr);
-    PTI_ASSERT(status == ZE_RESULT_SUCCESS);
-    PTI_ASSERT(value_count > 0);
-
-    report_list.resize(value_count);
-    status = zetMetricGroupCalculateMetricValues(
-        metric_group_, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
-        metric_storage_.size(), metric_storage_.data(),
-        &value_count, report_list.data());
-    PTI_ASSERT(status == ZE_RESULT_SUCCESS);
-    report_list.resize(value_count);
-
-    return report_list;
-  }
-
-  int GetMetricId(const char* metric_name) const {
-    PTI_ASSERT(metric_name != nullptr);
-    PTI_ASSERT(metric_group_ != nullptr);
-    return utils::ze::GetMetricId(metric_group_, metric_name);
-  }
-
-  uint32_t GetReportSize() const {
-    PTI_ASSERT(metric_group_ != nullptr);
-    ze_result_t status = ZE_RESULT_SUCCESS;
-
-    zet_metric_group_properties_t group_props{};
-    group_props.stype = ZET_STRUCTURE_TYPE_METRIC_GROUP_PROPERTIES;
-    status = zetMetricGroupGetProperties(metric_group_, &group_props);
-    PTI_ASSERT(status == ZE_RESULT_SUCCESS);
-    return group_props.metricCount;
+  std::vector<MetricResult> GetMetricsList() const {
+    return metric_results_;
   }
 
  private: // Implementation
@@ -118,6 +87,9 @@ class ZeMetricCollector {
     PTI_ASSERT(device_ != nullptr);
     PTI_ASSERT(context_ != nullptr);
     PTI_ASSERT(metric_group_ != nullptr);
+    SetCollectionConfig();
+    SetReportSize();
+    SetMetricIndices();
     EnableMetrics();
   }
 
@@ -143,13 +115,95 @@ class ZeMetricCollector {
     delete collector_thread_;
   }
 
-  void AppendMetrics(const std::vector<uint8_t>& storage) {
+  void SetCollectionConfig() {
+    const auto cni = utils::GetEnv("collector_notify_interval");
+    if (!cni.empty()) collector_notify_interval = std::stoul(cni);
+    const auto csp = utils::GetEnv("collector_sampling_period_ns");
+    if (!csp.empty()) collector_sampling_period_ns = std::stoul(csp);
+    const auto cd = utils::GetEnv("collector_delay_ns");
+    if (!cd.empty()) collector_delay_ns = std::stoull(cd);
+    std::cout << "collector_notify_interval: " << collector_notify_interval << "\n";
+    std::cout << "collector_sampling_period_ns: " << collector_sampling_period_ns << "\n";
+    std::cout << "collector_delay_ns: " << collector_delay_ns << std::endl;
+  }
+
+  void SetReportSize() {
+    PTI_ASSERT(metric_group_ != nullptr);
+    ze_result_t status = ZE_RESULT_SUCCESS;
+
+    zet_metric_group_properties_t group_props{};
+    group_props.stype = ZET_STRUCTURE_TYPE_METRIC_GROUP_PROPERTIES;
+    status = zetMetricGroupGetProperties(metric_group_, &group_props);
+    PTI_ASSERT(status == ZE_RESULT_SUCCESS);
+    report_size_ = group_props.metricCount;
+  }
+
+  void SetMetricIndices() {
+    PTI_ASSERT(metric_group_ != nullptr);
+    inst_alu0_id_ = utils::ze::GetMetricId(metric_group_, "XVE_INST_EXECUTED_ALU0_ALL");
+    PTI_ASSERT(inst_alu0_id_ > 0);
+    inst_alu1_id_ = utils::ze::GetMetricId(metric_group_, "XVE_INST_EXECUTED_ALU1_ALL");
+    PTI_ASSERT(inst_alu1_id_ > 0);
+    inst_xmx_id_ = utils::ze::GetMetricId(metric_group_, "XVE_INST_EXECUTED_XMX_ALL");
+    PTI_ASSERT(inst_xmx_id_ > 0);
+    inst_send_id_ = utils::ze::GetMetricId(metric_group_, "XVE_INST_EXECUTED_SEND_ALL");
+    PTI_ASSERT(inst_send_id_ > 0);
+    inst_ctrl_id_ = utils::ze::GetMetricId(metric_group_, "XVE_INST_EXECUTED_CONTROL_ALL");
+    PTI_ASSERT(inst_ctrl_id_ > 0);
+  }
+
+  void AppendCalculatedMetrics(const std::vector<uint8_t>& storage) {
     PTI_ASSERT(storage.size() > 0);
 
-    size_t intial_size = metric_storage_.size();
-    metric_storage_.resize(intial_size + storage.size());
-    std::copy(storage.begin(), storage.end(),
-              metric_storage_.begin() + intial_size);
+    ze_result_t status = ZE_RESULT_SUCCESS;
+    std::vector<zet_typed_value_t> report_list;
+    PTI_ASSERT(metric_group_ != nullptr);
+
+    if (storage.size() == 0) {
+      return;
+    }
+
+    uint32_t value_count = 0;
+    status = zetMetricGroupCalculateMetricValues(
+        metric_group_, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
+        storage.size(), storage.data(), &value_count, nullptr);
+    PTI_ASSERT(status == ZE_RESULT_SUCCESS);
+    PTI_ASSERT(value_count > 0);
+
+    report_list.resize(value_count);
+    status = zetMetricGroupCalculateMetricValues(
+        metric_group_, ZET_METRIC_GROUP_CALCULATION_TYPE_METRIC_VALUES,
+        storage.size(), storage.data(),
+        &value_count, report_list.data());
+    PTI_ASSERT(status == ZE_RESULT_SUCCESS);
+    report_list.resize(value_count);
+
+    MetricResult metric_result;
+
+    const zet_typed_value_t* report = report_list.data();
+    while (report < report_list.data() + report_list.size()) {
+      PTI_ASSERT(report[inst_alu0_id_].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_alu0 = report[inst_alu0_id_].value.ui64;
+      PTI_ASSERT(report[inst_alu1_id_].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_alu1 = report[inst_alu1_id_].value.ui64;
+      PTI_ASSERT(report[inst_xmx_id_].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_xmx = report[inst_xmx_id_].value.ui64;
+      PTI_ASSERT(report[inst_send_id_].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_send = report[inst_send_id_].value.ui64;
+      PTI_ASSERT(report[inst_ctrl_id_].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_ctrl = report[inst_ctrl_id_].value.ui64;
+
+      metric_result.inst_alu0 += inst_alu0;
+      metric_result.inst_alu1 += inst_alu1;
+      metric_result.inst_xmx += inst_xmx;
+      metric_result.inst_send += inst_send;
+      metric_result.inst_ctrl += inst_ctrl;
+      metric_result.merged_reports += 1;
+
+      report += report_size_;
+    }
+
+    metric_results_.push_back(metric_result);
   }
 
   static void Collect(ZeMetricCollector* collector) {
@@ -182,8 +236,8 @@ class ZeMetricCollector {
     zet_metric_streamer_desc_t metric_streamer_desc = {
         ZET_STRUCTURE_TYPE_METRIC_STREAMER_DESC,
         nullptr,
-        32768, /* reports to collect before notify */
-        100000 /* sampling period in nanoseconds */};
+        collector->collector_notify_interval,
+        collector->collector_sampling_period_ns};
     zet_metric_streamer_handle_t metric_streamer = nullptr;
     status = zetMetricStreamerOpen(
         collector->context_, collector->device_, collector->metric_group_,
@@ -197,7 +251,7 @@ class ZeMetricCollector {
     while (collector->collector_state_.load(std::memory_order_acquire) !=
            COLLECTOR_STATE_DISABLED) {
       status = zeEventHostSynchronize(
-          event, 50000000 /* wait delay in nanoseconds */);
+          event, collector->collector_delay_ns);
       PTI_ASSERT(status == ZE_RESULT_SUCCESS || status == ZE_RESULT_NOT_READY);
 
       size_t data_size = 0;
@@ -211,9 +265,7 @@ class ZeMetricCollector {
             metric_streamer, UINT32_MAX, &data_size, storage.data());
         PTI_ASSERT(status == ZE_RESULT_SUCCESS);
         storage.resize(data_size);
-        //PTI_ASSERT(storage.size() > 0);
-	if(storage.size() > 0)
-            collector->AppendMetrics(storage);
+        if (storage.size() > 0) collector->AppendCalculatedMetrics(storage);
       }
     }
 
@@ -238,7 +290,19 @@ class ZeMetricCollector {
   std::atomic<CollectorState> collector_state_{COLLECTOR_STATE_IDLE};
 
   zet_metric_group_handle_t metric_group_ = nullptr;
-  std::vector<uint8_t> metric_storage_;
+  std::vector<MetricResult> metric_results_;
+
+  uint32_t report_size_;
+  int inst_alu0_id_;
+  int inst_alu1_id_;
+  int inst_xmx_id_;
+  int inst_send_id_;
+  int inst_ctrl_id_;
+
+ public:
+  uint32_t collector_notify_interval = 32768;
+  uint32_t collector_sampling_period_ns = 100000;
+  uint64_t collector_delay_ns = 50000000;
 };
 
 #endif // PTI_SAMPLES_ZE_METRIC_STREAMER_ZE_METRIC_COLLECTOR_H_
