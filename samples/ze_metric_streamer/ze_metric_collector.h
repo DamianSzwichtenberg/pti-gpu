@@ -24,6 +24,7 @@ struct MetricResult {
   uint64_t inst_xmx = 0;
   uint64_t inst_send = 0;
   uint64_t inst_ctrl = 0;
+  uint64_t merged_reports = 0;
 };
 
 enum CollectorState {
@@ -175,8 +176,6 @@ class ZeMetricCollector {
         storage.size(), storage.data(),
         &value_count, report_list.data());
     PTI_ASSERT(status == ZE_RESULT_SUCCESS);
-    // TODO: Understand why I need to resize report_list after metric calculations.
-    // It happens only once, at the beginning of execution.
     report_list.resize(value_count);
 
     MetricResult metric_result;
@@ -199,6 +198,7 @@ class ZeMetricCollector {
       metric_result.inst_xmx += inst_xmx;
       metric_result.inst_send += inst_send;
       metric_result.inst_ctrl += inst_ctrl;
+      metrci_result.merged_reports += 1;
 
       report += report_size_;
     }

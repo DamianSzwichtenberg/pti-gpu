@@ -44,7 +44,6 @@ static MetricResult GetMetricResult() {
 
   std::vector<MetricResult> metric_list =
     metric_collector->GetMetricsList();
-  std::cout << "Performed " << metric_list.size() << " samplings." << std::endl;
 
   MetricResult metric_result;
 
@@ -54,6 +53,7 @@ static MetricResult GetMetricResult() {
     metric_result.inst_xmx += metric.inst_xmx;
     metric_result.inst_send += metric.inst_send;
     metric_result.inst_ctrl += metric.inst_ctrl;
+    metric_result.merged_reports += metric.merged_reports;
   }
 
   return metric_result;
@@ -73,13 +73,15 @@ static void PrintResults() {
     std::setw(kInstructionLength) << "Inst executed alu1" << "," <<
     std::setw(kInstructionLength) << "Inst executed xmx" << "," <<
     std::setw(kInstructionLength) << "Inst executed send" << "," <<
-    std::setw(kInstructionLength) << "Inst executed ctrl" << std::endl;
+    std::setw(kInstructionLength) << "Inst executed ctrl" << "," <<
+    std::setw(kInstructionLength) << "Merged reports" << std::endl;
 
   std::cerr << std::setw(kInstructionLength) << metric_result.inst_alu0 << "," <<
     std::setw(kInstructionLength) << metric_result.inst_alu1 << "," <<
     std::setw(kInstructionLength) << metric_result.inst_xmx << "," <<
     std::setw(kInstructionLength) << metric_result.inst_send << "," <<
-    std::setw(kInstructionLength) << metric_result.inst_ctrl << std::endl;
+    std::setw(kInstructionLength) << metric_result.inst_ctrl << "," <<
+    std::setw(kInstructionLength) << metric_result.merged_reports << ::endl;
 
   std::cerr << std::endl;
 }
