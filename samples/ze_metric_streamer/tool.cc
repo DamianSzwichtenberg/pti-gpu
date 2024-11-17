@@ -81,7 +81,7 @@ static void PrintResults() {
     std::setw(kInstructionLength) << metric_result.inst_xmx << "," <<
     std::setw(kInstructionLength) << metric_result.inst_send << "," <<
     std::setw(kInstructionLength) << metric_result.inst_ctrl << "," <<
-    std::setw(kInstructionLength) << metric_result.merged_reports << ::endl;
+    std::setw(kInstructionLength) << metric_result.merged_reports << std::endl;
 
   std::cerr << std::endl;
 }
