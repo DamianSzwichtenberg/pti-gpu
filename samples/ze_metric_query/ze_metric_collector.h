@@ -114,7 +114,8 @@ class ZeMetricCollector {
 #endif
   }
 
-  const KernelReportMap& GetKernelReportMap() const {
+  const KernelReportMap& GetKernelReportMap() {
+    ProcessResults();
     return kernel_report_map_;
   }
 
@@ -174,10 +175,10 @@ class ZeMetricCollector {
     epilogue_callbacks.Kernel.pfnCreateCb = OnExitKernelCreate;
     epilogue_callbacks.Kernel.pfnDestroyCb = OnExitKernelDestroy;
 
-    epilogue_callbacks.CommandQueue.pfnDestroyCb =
-      OnExitCommandQueueDestroy;
-    epilogue_callbacks.CommandQueue.pfnSynchronizeCb =
-      OnExitCommandQueueSynchronize;
+    // epilogue_callbacks.CommandQueue.pfnDestroyCb =
+    //   OnExitCommandQueueDestroy;
+    // epilogue_callbacks.CommandQueue.pfnSynchronizeCb =
+    //   OnExitCommandQueueSynchronize;
 
     ze_result_t status = ZE_RESULT_SUCCESS;
     status = zelTracerSetPrologues(tracer_, &prologue_callbacks);
