@@ -114,36 +114,50 @@ class ZeMetricCollector {
 #endif
   }
 
-  const KernelReportMap& GetKernelReportMap() const {
+  const KernelReportMap& GetKernelReportMap() {
+    ProcessResults();
     return kernel_report_map_;
   }
 
-  int GetGpuTimeId() const {
-    return gpu_time_id_;
+  int GetInstAlu0Id() const {
+    return inst_alu0_id_;
   }
 
-  int GetEuActiveId() const {
-    return eu_active_id_;
+  int GetInstAlu1Id() const {
+    return inst_alu1_id_;
   }
 
-  int GetEuStallId() const {
-    return eu_stall_id_;
+  int GetInstXmxId() const {
+    return inst_xmx_id_;
   }
+
+  int GetInstSendId() const {
+    return inst_send_id_;
+  }
+
+  int GetInstCtrlId() const {
+    return inst_ctrl_id_;
+  }
+
  private: // Implementation
   ZeMetricCollector(
       ze_device_handle_t device, ze_context_handle_t context,
       uint32_t max_kernel_count, zet_metric_group_handle_t group)
       : device_(device), context_(context),
         max_kernel_count_(max_kernel_count),
-        gpu_time_id_(utils::ze::GetMetricId(group, "GpuTime")),
-        eu_active_id_(utils::ze::GetMetricId(group, "XVE_ACTIVE")),
-        eu_stall_id_(utils::ze::GetMetricId(group, "XVE_STALL")) {
+        inst_alu0_id_(utils::ze::GetMetricId(group, "XVE_INST_EXECUTED_ALU0_ALL")),
+        inst_alu1_id_(utils::ze::GetMetricId(group, "XVE_INST_EXECUTED_ALU1_ALL")),
+        inst_xmx_id_(utils::ze::GetMetricId(group, "XVE_INST_EXECUTED_XMX_ALL")),
+        inst_send_id_(utils::ze::GetMetricId(group, "XVE_INST_EXECUTED_SEND_ALL")),
+        inst_ctrl_id_(utils::ze::GetMetricId(group, "XVE_INST_EXECUTED_CONTROL_ALL")) {
     PTI_ASSERT(device_ != nullptr);
     PTI_ASSERT(context_ != nullptr);
     PTI_ASSERT(max_kernel_count_ > 0);
-    PTI_ASSERT(gpu_time_id_ != -1);
-    PTI_ASSERT(eu_active_id_ != -1); // Note, the names of the same events might vary on different GPU models.
-    PTI_ASSERT(eu_stall_id_ != -1); // In case of this assert, check the corresponding events names (active, stall) using ze_metric_info sample tool.
+    PTI_ASSERT(inst_alu0_id_ != -1);
+    PTI_ASSERT(inst_alu1_id_ != -1);
+    PTI_ASSERT(inst_xmx_id_ != -1);
+    PTI_ASSERT(inst_send_id_ != -1);
+    PTI_ASSERT(inst_ctrl_id_ != -1);
   }
 
   void EnableTracing(zel_tracer_handle_t tracer) {
@@ -161,10 +175,10 @@ class ZeMetricCollector {
     epilogue_callbacks.Kernel.pfnCreateCb = OnExitKernelCreate;
     epilogue_callbacks.Kernel.pfnDestroyCb = OnExitKernelDestroy;
 
-    epilogue_callbacks.CommandQueue.pfnDestroyCb =
-      OnExitCommandQueueDestroy;
-    epilogue_callbacks.CommandQueue.pfnSynchronizeCb =
-      OnExitCommandQueueSynchronize;
+    // epilogue_callbacks.CommandQueue.pfnDestroyCb =
+    //   OnExitCommandQueueDestroy;
+    // epilogue_callbacks.CommandQueue.pfnSynchronizeCb =
+    //   OnExitCommandQueueSynchronize;
 
     ze_result_t status = ZE_RESULT_SUCCESS;
     status = zelTracerSetPrologues(tracer_, &prologue_callbacks);
@@ -475,9 +489,11 @@ class ZeMetricCollector {
   zet_metric_group_handle_t metric_group_ = nullptr;
   zet_metric_query_pool_handle_t metric_query_pool_ = nullptr;
   ze_event_pool_handle_t event_pool_ = nullptr;
-  int gpu_time_id_;
-  int eu_active_id_;
-  int eu_stall_id_;
+  int inst_alu0_id_;
+  int inst_alu1_id_;
+  int inst_xmx_id_;
+  int inst_send_id_;
+  int inst_ctrl_id_;
 
   std::atomic<uint32_t> kernel_id_{0};
   uint32_t max_kernel_count_ = 0;
