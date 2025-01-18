@@ -13,24 +13,11 @@
 #include "ze_metric_collector.h"
 
 struct Kernel {
-  uint64_t total_time;
-  uint64_t call_count;
-  float eu_active;
-  float eu_stall;
-
-  bool operator>(const Kernel& r) const {
-    if (total_time != r.total_time) {
-      return total_time > r.total_time;
-    }
-    return call_count > r.call_count;
-  }
-
-  bool operator!=(const Kernel& r) const {
-    if (total_time == r.total_time) {
-      return call_count != r.call_count;
-    }
-    return true;
-  }
+  uint64_t inst_alu0 = 0;
+  uint64_t inst_alu1 = 0;
+  uint64_t inst_xmx = 0;
+  uint64_t inst_send = 0;
+  uint64_t inst_ctrl = 0;
 };
 
 using KernelMap = std::map<std::string, Kernel>;
@@ -72,38 +59,43 @@ static KernelMap GetKernelMap() {
     return KernelMap();
   }
 
-  int gpu_time_id = collector->GetGpuTimeId();
-  PTI_ASSERT(gpu_time_id >= 0);
-  int eu_active_id = collector->GetEuActiveId();
-  PTI_ASSERT(eu_active_id >= 0);
-  int eu_stall_id = collector->GetEuStallId();
-  PTI_ASSERT(eu_stall_id >= 0);
+  int inst_alu0_id = collector->GetInstAlu0Id();
+  PTI_ASSERT(inst_alu0_id >= 0);
+  int inst_alu1_id = collector->GetInstAlu1Id();
+  PTI_ASSERT(inst_alu1_id >= 0);
+  int inst_xmx_id = collector->GetInstXmxId();
+  PTI_ASSERT(inst_xmx_id >= 0);
+  int inst_send_id = collector->GetInstSendId();
+  PTI_ASSERT(inst_send_id >= 0);
+  int inst_ctrl_id = collector->GetInstCtrlId();
+  PTI_ASSERT(inst_ctrl_id >= 0);
 
   KernelMap kernel_map;
   for (auto& kernel : kernel_report_map) {
     std::string kernel_name = kernel.first;
-    Kernel kernel_info{0, 0, 0.0f, 0.0f};
+    Kernel kernel_info;
 
     for (auto& report : kernel.second) {
       uint64_t gpu_time = 0;
       float eu_active = 0.0f, eu_stall = 0.0f;
 
-      PTI_ASSERT(report[gpu_time_id].type == ZET_VALUE_TYPE_UINT64);
-      gpu_time = report[gpu_time_id].value.ui64;
-      PTI_ASSERT(report[eu_active_id].type == ZET_VALUE_TYPE_FLOAT32);
-      eu_active = report[eu_active_id].value.fp32;
-      PTI_ASSERT(report[eu_stall_id].type == ZET_VALUE_TYPE_FLOAT32);
-      eu_stall = report[eu_stall_id].value.fp32;
+      PTI_ASSERT(report[inst_alu0_id].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_alu0 = report[inst_alu0_id].value.ui64;
+      PTI_ASSERT(report[inst_alu1_id].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_alu1 = report[inst_alu1_id].value.ui64;
+      PTI_ASSERT(report[inst_xmx_id].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_xmx = report[inst_xmx_id].value.ui64;
+      PTI_ASSERT(report[inst_send_id].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_send = report[inst_send_id].value.ui64;
+      PTI_ASSERT(report[inst_ctrl_id].type == ZET_VALUE_TYPE_UINT64);
+      uint64_t inst_ctrl = report[inst_ctrl_id].value.ui64;
 
-      kernel_info.total_time += gpu_time;
-      ++(kernel_info.call_count);
-      kernel_info.eu_active += eu_active;
-      kernel_info.eu_stall += eu_stall;
+      kernel_info.inst_alu0 += inst_alu0;
+      kernel_info.inst_alu1 += inst_alu1;
+      kernel_info.inst_xmx += inst_xmx;
+      kernel_info.inst_send += inst_send;
+      kernel_info.inst_ctrl += inst_ctrl;
     }
-
-    PTI_ASSERT(kernel_info.call_count > 0);
-    kernel_info.eu_active /= kernel_info.call_count;
-    kernel_info.eu_stall /= kernel_info.call_count;
 
     kernel_map[kernel_name] = kernel_info;
   }
@@ -120,63 +112,25 @@ static void PrintResults() {
     return;
   }
 
-  std::set< std::pair<std::string, Kernel>,
-            utils::Comparator > sorted_list(
-      kernel_map.begin(), kernel_map.end());
-
-  uint64_t total_duration = 0;
-  size_t max_name_length = kKernelLength;
-  for (auto& value : sorted_list) {
-    total_duration += value.second.total_time;
-    if (value.first.size() > max_name_length) {
-      max_name_length = value.first.size();
-    }
-  }
-
-  if (total_duration == 0) {
-    return;
-  }
-
   std::cerr << std::endl;
   std::cerr << "=== Device Metrics: ===" << std::endl;
   std::cerr << std::endl;
-  std::cerr << "Total Execution Time (ns): " << time.count() << std::endl;
-  std::cerr << "Total Kernel Time (ns): " << total_duration << std::endl;
-  std::cerr << std::endl;
 
-  std::cerr << std::setw(max_name_length) << "Kernel" << "," <<
-    std::setw(kCallsLength) << "Calls" << "," <<
-    std::setw(kTimeLength) << "Time (ns)" << "," <<
-    std::setw(kPercentLength) << "Time (%)" << "," <<
-    std::setw(kTimeLength) << "Average (ns)" << "," <<
-    std::setw(kPercentLength) << "EU Active (%)" << "," <<
-    std::setw(kPercentLength) << "EU Stall (%)" << "," <<
-    std::setw(kPercentLength) << "EU Idle (%)" << std::endl;
+  auto kInstructionLength = 20;
+  std::cerr << std::setw(kInstructionLength) << "Kernel" << "," <<
+    std::setw(kInstructionLength) << "Inst executed alu0" << "," <<
+    std::setw(kInstructionLength) << "Inst executed alu1" << "," <<
+    std::setw(kInstructionLength) << "Inst executed xmx" << "," <<
+    std::setw(kInstructionLength) << "Inst executed send" << "," <<
+    std::setw(kInstructionLength) << "Inst executed ctrl" << std::endl;
 
-  for (auto& value : sorted_list) {
-    const std::string& kernel = value.first;
-    uint64_t call_count = value.second.call_count;
-    uint64_t duration = value.second.total_time;
-    uint64_t avg_duration = duration / call_count;
-    float percent_duration = 100.0f * duration / total_duration;
-    float eu_active = value.second.eu_active;
-    float eu_stall = value.second.eu_stall;
-    float eu_idle = 0.0f;
-    if (eu_active + eu_stall < 100.0f) {
-      eu_idle = 100.f - eu_active - eu_stall;
-    }
-    std::cerr << std::setw(max_name_length) << kernel << "," <<
-      std::setw(kCallsLength) << call_count << "," <<
-      std::setw(kTimeLength) << duration << "," <<
-      std::setw(kPercentLength) << std::setprecision(2) <<
-        std::fixed << percent_duration << "," <<
-      std::setw(kTimeLength) << avg_duration << "," <<
-      std::setw(kPercentLength) << std::setprecision(2) <<
-        std::fixed << eu_active << "," <<
-      std::setw(kPercentLength) << std::setprecision(2) <<
-        std::fixed << eu_stall << "," <<
-      std::setw(kPercentLength) << std::setprecision(2) <<
-        std::fixed << eu_idle << std::endl;
+  for (auto &[name, val] : kernel_map) {
+    std::cerr << std::setw(kInstructionLength) << name << "," <<
+        std::setw(kInstructionLength) << val.inst_alu0 << "," <<
+        std::setw(kInstructionLength) << val.inst_alu1 << "," <<
+        std::setw(kInstructionLength) << val.inst_xmx << "," <<
+        std::setw(kInstructionLength) << val.inst_send << "," <<
+        std::setw(kInstructionLength) << val.inst_ctrl << std::endl;
   }
 
   std::cerr << std::endl;
